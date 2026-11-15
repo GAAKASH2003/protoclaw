@@ -2,6 +2,8 @@
  * TypeScript types and domain contracts for ProtoClaw's central database (protoclaw.db).
  */
 
+import { ProvidedContext } from "vitest";
+
 export type EngageMode = 'pattern' | 'mention' | 'mention-sticky';
 export type SessionMode = 'shared' | 'per-thread' | 'agent-shared';
 export type UserRoleType = 'owner' | 'admin';
@@ -171,5 +173,9 @@ export interface InboundEvent{
   text: string;
   isMention?:boolean;
   timestamp?:string;
+}
+
+export interface AgentProvider{
+  query(prompt:string,context?:ProvidedContext):Promise<string>;
 }
 

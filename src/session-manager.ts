@@ -145,3 +145,8 @@ export async function resolveOrCreateSession(
     return { session: newSession, created: true };
   });
 }
+
+
+export function heartbeatPath(agentGroupId: string, sessionId: string): string {
+  return path.join(sessionDir(agentGroupId, sessionId), '.heartbeat');
+}

@@ -1,7 +1,8 @@
 import { DatabaseSync } from 'node:sqlite';
 import { ensureUser, isOwner, isAdmin } from './db/users.js';
 import { ensureMessagingGroup, getMessagingGroup } from './db/messaging-groups.js';
-import { findWiringsForMessagingGroup } from './db/wirings.js';
+import { findWiringsForMessagingGroup, wireAgentToMessagingGroup } from './db/wirings.js';
+import { getAgentGroup } from './db/agent-groups.js';
 import { resolveOrCreateSession, inboundDbPath } from './session-manager.js';
 import { openInboundDb, writeMessageIn } from './mailbox/session-db.js';
 import type { InboundEvent, RouteResult } from './types.js';
@@ -41,7 +42,8 @@ export async function routeInbound(
     const messagingGroup = ensureMessagingGroup(db, {
         id: `${event.channelType}:${event.platformId}`,
         channel_type: event.channelType,
-        platform_id: event.platformId
+        platform_id: event.platformId,
+        unknown_sender_policy: 'public'
     });
 
     const isAuthorized = isOwner(db, user.id) || isAdmin(db, user.id);
@@ -54,9 +56,22 @@ export async function routeInbound(
         reason: 'Unknown sender blocked by strict policy'
         }];
    }
-    const wirings = findWiringsForMessagingGroup(db, messagingGroup.id);
+    let wirings = findWiringsForMessagingGroup(db, messagingGroup.id);
     if (wirings.length === 0) {
+      // Auto-wire new channels to default 'assistant' if it exists
+      const defaultAgent = getAgentGroup(db, 'assistant');
+      if (defaultAgent) {
+        wireAgentToMessagingGroup(db, {
+          messaging_group_id: messagingGroup.id,
+          agent_group_id: defaultAgent.id,
+          engage_mode: 'pattern',
+          engage_pattern: '.',
+          session_mode: 'shared'
+        });
+        wirings = findWiringsForMessagingGroup(db, messagingGroup.id);
+      } else {
         return [];
+      }
     }
     const results: RouteResult[] = [];
     for (const wiring of wirings) {

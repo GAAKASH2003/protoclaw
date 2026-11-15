@@ -8,7 +8,10 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "dev": "tsx src/index.ts",
-    "chat": "tsx scripts/chat.ts"
+    "chat": "tsx scripts/chat.ts",
+    "telegram": "tsx scripts/telegram.ts",
+    "whatsapp": "tsx scripts/whatsapp.ts",
+    "discord": "tsx scripts/discord.ts"
   },
   "dependencies": {
     "cron-parser": "^5.5.0",
