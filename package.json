@@ -11,8 +11,10 @@
     "chat": "tsx scripts/chat.ts",
     "telegram": "tsx scripts/telegram.ts",
     "whatsapp": "tsx scripts/whatsapp.ts",
-    "discord": "tsx scripts/discord.ts"
+    "discord": "tsx scripts/discord.ts",
+    "docker:build": "docker build -t protoclaw-runner -f container/Dockerfile ."
   },
+  "packageManager": "pnpm@10.6.5",
   "dependencies": {
     "cron-parser": "^5.5.0",
     "kleur": "^4.1.5"

@@ -7,7 +7,13 @@ import { resolveOrCreateSession, inboundDbPath } from './session-manager.js';
 import { openInboundDb, writeMessageIn } from './mailbox/session-db.js';
 import type { InboundEvent, RouteResult } from './types.js';
 import type { MessagingGroupAgentRow, SessionMode } from './db/types.js';
-
+import { wakeContainer } from './container-runner.js';
+import { 
+  CONTAINER_RUNNER, 
+  CONTAINER_IMAGE, 
+  CONTAINER_IDLE_TIMEOUT_MS 
+} from './config.js';
+export type WakeCallback = (sessionId: string, agentGroupId: string) => Promise<void> | void;
 
 
 export function evaluateEngage(
@@ -33,7 +39,8 @@ export function evaluateEngage(
 export async function routeInbound(
     event: InboundEvent,
     db: DatabaseSync,
-    onWake?: (sessionId: string)=> void):Promise<RouteResult[]>{
+    onWake?: WakeCallback
+): Promise<RouteResult[]> {
     const user = ensureUser(db, {
         id: event.sender.id,
         kind: event.channelType,
@@ -105,9 +112,14 @@ export async function routeInbound(
         inDb.close();
     }
 
-        // 7. Fire wake callback
-    if (onWake) {
-        onWake(session.id);
+    if(onWake){
+      await onWake(session.id, wiring.agent_group_id);
+    } 
+    else if (CONTAINER_RUNNER) {
+      await wakeContainer(wiring.agent_group_id, session.id, {
+        imageName: CONTAINER_IMAGE,
+        idleTimeoutMs: CONTAINER_IDLE_TIMEOUT_MS
+      });
     }
     results.push({
         agentGroupId: wiring.agent_group_id,

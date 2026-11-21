@@ -21,6 +21,8 @@ import { deliverSessionMessages } from '../src/delivery.js';
 import { TelegramChannelAdapter } from '../src/channels/telegram.js';
 import { CliChannelAdapter } from '../src/channels/cli.js';
 import { registerChannelAdapter } from '../src/channels/registry.js';
+import { CONTAINER_RUNNER } from '../src/config.js';
+import { wakeContainer, stopAllContainers } from '../src/container-runner.js';
 import { resolveOrCreateSession } from '../src/session-manager.js';
 
 async function main() {
@@ -93,17 +95,22 @@ async function main() {
   const activeSessions = new Set<string>();
   activeSessions.add(session.id);
 
+  console.log(kleur.green(`✓ Runtime Mode: ${CONTAINER_RUNNER ? 'Docker Container Sandbox' : 'Host In-Process'}`));
+
   const controller = new AbortController();
 
   // Handle graceful shutdown
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log(kleur.yellow('\nShutting down Telegram bot runner...'));
     controller.abort();
+    if (CONTAINER_RUNNER) {
+      await stopAllContainers();
+    }
     closeCentralDb();
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => { shutdown(); });
+  process.on('SIGTERM', () => { shutdown(); });
 
   // 4. Background Poll & Delivery Loop over all active sessions
   const loopInterval = 500;
@@ -111,16 +118,15 @@ async function main() {
     while (!controller.signal.aborted) {
       for (const sessId of activeSessions) {
         try {
-          const res = await runPollCycle({
-            agentGroupId: 'assistant',
-            sessionId: sessId,
-            provider,
-            systemPrompt: 'You are ProtoClaw, a helpful and intelligent AI assistant.'
-          });
-
-          if (res.processed > 0) {
-            await deliverSessionMessages('assistant', sessId);
+          if (!CONTAINER_RUNNER) {
+            const res = await runPollCycle({
+              agentGroupId: 'assistant',
+              sessionId: sessId,
+              provider,
+              systemPrompt: 'You are ProtoClaw, a helpful and intelligent AI assistant.'
+            });
           }
+          await deliverSessionMessages('assistant', sessId);
         } catch (err) {
           // Keep loop running on transient errors
         }
@@ -130,7 +136,7 @@ async function main() {
     }
   })();
 
-  console.log(kleur.green('✓ Host Delivery Engine & Runner Loop active.'));
+  console.log(kleur.green(`✓ Host Delivery Engine & ${CONTAINER_RUNNER ? 'Container' : 'Runner'} Loop active.`));
   console.log(kleur.cyan('\n🚀 Listening for Telegram messages (long polling)...'));
   console.log(kleur.gray('Send a message to your bot on Telegram! Press Ctrl+C to stop.\n'));
 
@@ -145,17 +151,25 @@ async function main() {
           event.text
       );
     },
-    onWake: (sessId) => {
+    onWake: async (sessId) => {
       activeSessions.add(sessId);
-      // Run poll cycle & delivery immediately on wake
-      runPollCycle({
-        agentGroupId: 'assistant',
-        sessionId: sessId,
-        provider,
-        systemPrompt: 'You are ProtoClaw, a helpful and intelligent AI assistant.'
-      })
-        .then(() => deliverSessionMessages('assistant', sessId))
-        .catch((e) => console.error(kleur.red('[runner error]'), e));
+      if (CONTAINER_RUNNER) {
+        // Container handles processing in sandbox; host delivers replies
+        await wakeContainer('assistant', sessId);
+      } else {
+        // Run poll cycle & delivery immediately on wake
+        try {
+          await runPollCycle({
+            agentGroupId: 'assistant',
+            sessionId: sessId,
+            provider,
+            systemPrompt: 'You are ProtoClaw, a helpful and intelligent AI assistant.'
+          });
+          await deliverSessionMessages('assistant', sessId);
+        } catch (e) {
+          console.error(kleur.red('[runner error]'), e);
+        }
+      }
     }
   });
 }

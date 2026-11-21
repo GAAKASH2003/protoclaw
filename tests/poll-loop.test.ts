@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { runPollCycle, startPollLoop } from '../src/runner/poll-loop.js';
@@ -38,6 +38,15 @@ describe('Phase 4: Agent Runner & Poll Loop', () => {
       } catch {
         // Ignore transient lock cleanup during test teardown
       }
+    }
+  });
+
+  afterAll(() => {
+    const testGroupDir = path.resolve(process.cwd(), 'groups', agentGroupId);
+    if (fs.existsSync(testGroupDir)) {
+      try {
+        fs.rmSync(testGroupDir, { recursive: true, force: true });
+      } catch {}
     }
   });
 

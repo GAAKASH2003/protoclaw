@@ -15,6 +15,7 @@ import type { ChannelAdapter, DeliveryResult, OutboundDeliverMessage } from './t
 import type { InboundEvent } from '../types.js';
 import type { DatabaseSync } from 'node:sqlite';
 import { routeInbound } from '../router.js';
+import { CONTAINER_RUNNER } from '../config.js';
 
 export interface DiscordChannelOptions {
   /** Discord Bot token from Discord Developer Portal */
@@ -184,6 +185,47 @@ export class DiscordChannelAdapter implements ChannelAdapter {
   }
 
   /**
+   * Triggers the "typing..." indicator in a Discord channel so users see the bot is working.
+   */
+  async triggerTyping(channelId: string): Promise<void> {
+    const rawToken =
+      this.botToken !== undefined && this.botToken !== ''
+        ? this.botToken
+        : (typeof process !== 'undefined' ? process.env.DISCORD_BOT_TOKEN || '' : '');
+    const token = rawToken.trim().replace(/^["']|["']$/g, '');
+    if (!token || !channelId) return;
+
+    try {
+      await fetch(`${this.apiBaseUrl}/channels/${channelId}/typing`, {
+        method: 'POST',
+        headers: { Authorization: `Bot ${token}` },
+        signal: AbortSignal.timeout(5000) as any
+      });
+    } catch {}
+  }
+
+  /**
+   * Adds an emoji reaction to a user's Discord message (e.g. 🐳 for Docker container wake).
+   */
+  async addReaction(channelId: string, messageId: string, emoji: string): Promise<void> {
+    const rawToken =
+      this.botToken !== undefined && this.botToken !== ''
+        ? this.botToken
+        : (typeof process !== 'undefined' ? process.env.DISCORD_BOT_TOKEN || '' : '');
+    const token = rawToken.trim().replace(/^["']|["']$/g, '');
+    if (!token || !channelId || !messageId) return;
+
+    try {
+      const encodedEmoji = encodeURIComponent(emoji);
+      await fetch(`${this.apiBaseUrl}/channels/${channelId}/messages/${messageId}/reactions/${encodedEmoji}/@me`, {
+        method: 'PUT',
+        headers: { Authorization: `Bot ${token}` },
+        signal: AbortSignal.timeout(5000) as any
+      });
+    } catch {}
+  }
+
+  /**
    * 2. Inbound Message Parsing: Converts Discord MESSAGE_CREATE payload to InboundEvent
    */
   parseMessage(msg: DiscordMessage): InboundEvent | null {
@@ -316,8 +358,17 @@ export class DiscordChannelAdapter implements ChannelAdapter {
                 options.onEventRouted(inboundEvent);
               }
               const routed = routes.find((r) => r.status === 'routed');
-              if (routed && options.onWake) {
-                options.onWake(routed.sessionId);
+              if (routed) {
+                // Visual feedback in Discord Desktop:
+                // 1. Show "ProtoClaw is typing..."
+                this.triggerTyping(d.channel_id).catch(() => {});
+                // 2. React with 🐳 emoji on user message when Docker sandbox container is awakened
+                if (CONTAINER_RUNNER && d.id) {
+                  this.addReaction(d.channel_id, d.id, '🐳').catch(() => {});
+                }
+                if (options.onWake) {
+                  options.onWake(routed.sessionId);
+                }
               }
             }
           }

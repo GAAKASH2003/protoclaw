@@ -21,6 +21,8 @@ import { deliverSessionMessages } from '../src/delivery.js';
 import { DiscordChannelAdapter } from '../src/channels/discord.js';
 import { CliChannelAdapter } from '../src/channels/cli.js';
 import { registerChannelAdapter } from '../src/channels/registry.js';
+import { CONTAINER_RUNNER } from '../src/config.js';
+import { wakeContainer, stopAllContainers } from '../src/container-runner.js';
 import { resolveOrCreateSession } from '../src/session-manager.js';
 
 async function main() {
@@ -91,17 +93,22 @@ async function main() {
   const activeSessions = new Set<string>();
   activeSessions.add(session.id);
 
+  console.log(kleur.green(`✓ Runtime Mode: ${CONTAINER_RUNNER ? 'Docker Container Sandbox' : 'Host In-Process'}`));
+
   const controller = new AbortController();
 
   // Handle graceful shutdown
-  const shutdown = () => {
+  const shutdown = async () => {
     console.log(kleur.yellow('\nShutting down Discord bot runner...'));
     controller.abort();
+    if (CONTAINER_RUNNER) {
+      await stopAllContainers();
+    }
     closeCentralDb();
     process.exit(0);
   };
-  process.on('SIGINT', shutdown);
-  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', () => { shutdown(); });
+  process.on('SIGTERM', () => { shutdown(); });
 
   // 4. Background Delivery & Processing Loop
   const loopInterval = 500;
@@ -109,16 +116,15 @@ async function main() {
     while (!controller.signal.aborted) {
       for (const sessId of activeSessions) {
         try {
-          const res = await runPollCycle({
-            agentGroupId: 'assistant',
-            sessionId: sessId,
-            provider,
-            systemPrompt: 'You are ProtoClaw, an intelligent and helpful AI assistant on Discord.'
-          });
-
-          if (res.processed > 0) {
-            await deliverSessionMessages('assistant', sessId);
+          if (!CONTAINER_RUNNER) {
+            const res = await runPollCycle({
+              agentGroupId: 'assistant',
+              sessionId: sessId,
+              provider,
+              systemPrompt: 'You are ProtoClaw, an intelligent and helpful AI assistant on Discord.'
+            });
           }
+          await deliverSessionMessages('assistant', sessId);
         } catch (err: any) {
           // Keep loop running on transient errors
         }
@@ -129,7 +135,7 @@ async function main() {
     }
   })();
 
-  console.log(kleur.green('✓ Host Delivery Engine & Runner Loop active (500ms ticks).'));
+  console.log(kleur.green(`✓ Host Delivery Engine & ${CONTAINER_RUNNER ? 'Container' : 'Runner'} Loop active (500ms ticks).`));
 
   // 5. Connect Gateway WebSocket for real-time Discord messages
   console.log(kleur.yellow('Connecting to Discord Gateway WebSocket...'));
@@ -145,17 +151,25 @@ async function main() {
           event.text
       );
     },
-    onWake: (sessId) => {
+    onWake: async (sessId) => {
       activeSessions.add(sessId);
-      // Process and deliver immediately on wake
-      runPollCycle({
-        agentGroupId: 'assistant',
-        sessionId: sessId,
-        provider,
-        systemPrompt: 'You are ProtoBot, an intelligent and helpful AI assistant on Discord.'
-      })
-        .then(() => deliverSessionMessages('assistant', sessId))
-        .catch((err) => console.error(kleur.red('[wake cycle error]:'), err));
+      if (CONTAINER_RUNNER) {
+        // Container handles processing in sandbox; host delivers replies
+        await wakeContainer('assistant', sessId);
+      } else {
+        // Process and deliver immediately on wake in-process
+        try {
+          await runPollCycle({
+            agentGroupId: 'assistant',
+            sessionId: sessId,
+            provider,
+            systemPrompt: 'You are ProtoClaw, an intelligent and helpful AI assistant on Discord.'
+          });
+          await deliverSessionMessages('assistant', sessId);
+        } catch (err) {
+          console.error(kleur.red('[wake cycle error]:'), err);
+        }
+      }
     }
   });
 

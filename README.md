@@ -82,7 +82,14 @@ ProtoClaw decouples the **Host** (which handles channels, databases, and network
 * **Active Prompt Isolation**: Automatically excludes the current turn from history to prevent duplicate prompt injection.
 * **Sliding Window Pruning**: Enforces configurable `maxTurns` (default 20 turns) while ensuring dialogue history always starts cleanly with a user message.
 
-### 4. Zero-Dependency Channel Adapters (`src/channels/`)
+### 4. Sandboxed Workspace & Autonomous Tool Loop (`src/tools/`, `src/runner/tool-loop.ts`, `src/mailbox/destinations.ts`)
+* **Jailed Workspace Environment**: Each agent group operates within `groups/<agent_group_id>/workspace/` with standing instructions from `AGENT.md`.
+* **Path Traversal Security**: Strict path sanitization (`resolveSafePath`) blocks directory escape attempts (`../`) with `WorkspaceSecurityError`.
+* **Standard Workspace Tools**: Includes `read_file`, `write_file`, `list_directory`, and `bash` (strictly jailed to `workspaceDir`).
+* **Cross-Channel & Inter-Agent Messaging**: The `send_message` tool dynamically resolves destinations from `inbound.db.destinations`, allowing agents to broadcast to Telegram, WhatsApp, Discord, or peer agents mid-turn.
+* **Autonomous Reasoning & Acting Loop**: Supports multi-turn tool execution (up to configurable `maxSteps`), self-correcting on runtime or security errors before committing the final human reply to `outbound.db`.
+
+### 5. Zero-Dependency Channel Adapters (`src/channels/`)
 
 | Channel | Protocol | Key Features |
 |---|---|---|
@@ -91,12 +98,21 @@ ProtoClaw decouples the **Host** (which handles channels, databases, and network
 | **WhatsApp** | HTTP Webhooks + Graph API | Meta Cloud API v21.0, automatic webhook handshake verification |
 | **Discord** | WebSocket Gateway + REST | Native Node 22 `WebSocket` Gateway connection (Intents: 37377), 2000-char smart chunking, `@mention` detection |
 
+### 6. Hardened Docker Sandbox Isolation (`src/container-runtime.ts`, `src/container-runner.ts`, `container/`)
+* **Strict Sandbox Isolation**: When `CONTAINER_RUNNER=true`, untrusted agent code and tools execute inside a dedicated Linux container (`protoclaw-runner`).
+* **Mount Boundary Composition**: Mounts `./data/sessions/<group>/<id>` to `/workspace/session` (read-only `inbound.db`, read-write `outbound.db`) and `./groups/<group>/workspace` to `/workspace/project`.
+* **Zero Network Exposure**: The host and container communicate exclusively through mounted SQLite files; no open TCP ports or bridges.
+* **Cold Start & Warm Reuse**: Containers spin up instantly when new inbound messages arrive and remain warm until an idle timeout shuts them down gracefully (`SIGTERM`).
+* **Zombie Orphan Sweeping**: `reapOrphans()` automatically cleans up stale container instances on host startup.
+
 ---
 
 ## 📁 Project Structure
 
 ```text
 protoclaw/
+├── container/                            # Linux container sandbox packaging
+│   └── Dockerfile                        # node:22-alpine hardened runner image
 ├── data/                                 # Runtime data (git-ignored)
 │   ├── protoclaw.db                      # Central SQLite relational database
 │   └── sessions/                         # Session mailbox directories
@@ -117,6 +133,8 @@ protoclaw/
 │   │   ├── whatsapp.ts                   # Meta WhatsApp Cloud API adapter
 │   │   ├── discord.ts                    # Discord REST + WebSocket adapter
 │   │   └── registry.ts                   # Channel adapter lookup registry
+│   ├── container-runner.ts               # Container lifecycle manager (wake, stop, reap)
+│   ├── container-runtime.ts              # Docker CLI wrapper & path normalizer
 │   ├── db/                               # Central database schema & CRUD
 │   │   ├── connection.ts                 # Database factory & migrations
 │   │   ├── users.ts                      # User management & roles
@@ -224,7 +242,7 @@ pnpm run whatsapp
 ProtoClaw includes an extensive test suite verifying database schemas, sequence parity, router concurrency locks, delivery idempotency, channel adapters, and history reconstruction:
 
 ```bash
-# Run full Vitest suite (82 passing tests)
+# Run full Vitest suite (119 passing tests across 15 test suites)
 pnpm test
 
 # Run TypeScript typecheck
@@ -232,7 +250,3 @@ pnpm typecheck
 ```
 
 ---
-
-## 📖 License
-
-MIT

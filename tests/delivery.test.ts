@@ -209,5 +209,38 @@ describe('Phase 5 - Step 4: Host Delivery Engine', () => {
     expect(cliAdapter.deliveredHistory.length).toBe(1);
     expect(cliAdapter.deliveredHistory[0].content).toBe('Async Delivered Message');
   });
+
+  it('prevents duplicate delivery when multiple deliverSessionMessages calls run concurrently', async () => {
+    const outPath = outboundDbPath(agentGroupId, currentSessionId);
+    let deliverCalls = 0;
+
+    registerChannelAdapter({
+      channelType: 'cli',
+      deliver: async (msg) => {
+        deliverCalls++;
+        // Simulate network latency (e.g. Discord API HTTP POST)
+        await new Promise((r) => setTimeout(r, 60));
+        return { platformMessageId: `msg-${deliverCalls}` };
+      }
+    });
+
+    // Write outbound message
+    const outDb = openOutboundDb(outPath, false);
+    try {
+      writeMessageOut(outDb, { content: 'Single Delivery Guarantee', channel_type: 'cli' });
+    } finally {
+      outDb.close();
+    }
+
+    // Trigger concurrent delivery cycles on the same session
+    const [res1, res2] = await Promise.all([
+      deliverSessionMessages(agentGroupId, currentSessionId),
+      deliverSessionMessages(agentGroupId, currentSessionId)
+    ]);
+
+    // Exactly one cycle should have delivered the message; the other skipped due to in-flight lock
+    expect(deliverCalls).toBe(1);
+    expect(res1.delivered + res2.delivered).toBe(1);
+  });
 });
 

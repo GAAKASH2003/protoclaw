@@ -44,3 +44,12 @@ export const GROUPS_DIR = path.resolve(PROJECT_ROOT, 'groups');
 export const DEFAULT_POLL_INTERVAL_MS = 500;
 export const HEARTBEAT_GRACE_PERIOD_MS = 5 * 60 * 1000; // 5 minutes
 export const DEFAULT_ASSISTANT_NAME = 'ProtoClaw';
+
+export const CONTAINER_RUNNER = process.env.CONTAINER_RUNNER === 'true';
+// Image tag to launch
+export const CONTAINER_IMAGE = process.env.CONTAINER_IMAGE || 'protoclaw-runner:latest';
+// Automatic idle timeout before stopping container (default: 60 seconds)
+export const CONTAINER_IDLE_TIMEOUT_MS = process.env.CONTAINER_IDLE_TIMEOUT_MS
+  ? Number(process.env.CONTAINER_IDLE_TIMEOUT_MS)
+  : 60_000;
+  
