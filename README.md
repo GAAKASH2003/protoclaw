@@ -1,7 +1,5 @@
 # 🐾 ProtoClaw
 
-> **A modular, zero-dependency educational clone of NanoClaw built on the Dual-DB Mailbox IPC architecture.**
-
 ProtoClaw is an autonomous agent orchestration framework designed for extreme resilience, clean isolation, and cross-boundary communication. It eliminates fragile IPC pipes, shared memory locks, and heavy third-party framework bloat by relying purely on **Node.js 22 native features** (`node:sqlite`, native `fetch`, and native `WebSocket`).
 
 ---
